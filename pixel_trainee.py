@@ -3,7 +3,7 @@ from tkinter import filedialog, messagebox
 import random
 from PIL import Image
 
-# ---------- 64x64 模板（随机模式用） ----------
+# ---------- 64x64 模板（随机模式仍用 64x64，之后放大显示） ----------
 def create_template():
     grid = [[0] * 64 for _ in range(64)]
 
@@ -60,7 +60,7 @@ def random_hair():
 def random_clothes():
     return f'#{random.randint(50,220):02x}{random.randint(50,220):02x}{random.randint(50,220):02x}'
 
-def render_image(template):
+def render_image_64(template):
     skin = random_skin()
     hair = random_hair()
     top = random_clothes()
@@ -89,20 +89,16 @@ def render_image(template):
     return colors
 
 
-# ---------- 图片转 64x64 像素数组（自动适应尺寸，不变形） ----------
+# ---------- 图片转 128x128 像素数组（自动适应尺寸） ----------
 def image_to_colors(image_path):
-    """
-    读取图片，等比缩放后居中放置到 64x64 白色背景上，
-    返回颜色字符串列表 colors[y][x]
-    """
-    img = Image.open(image_path).convert('RGB')   # 去掉透明通道
+    img = Image.open(image_path).convert('RGB')
     orig_w, orig_h = img.size
 
-    # 创建 64x64 白色背景
-    background = Image.new('RGB', (64, 64), (255, 255, 255))
+    # 创建 128x128 白色背景
+    background = Image.new('RGB', (128, 128), (255, 255, 255))
 
-    # 计算缩放比例，使图片完全在 64x64 内
-    scale = min(64 / orig_w, 64 / orig_h)
+    # 等比缩放，刚好放进 128x128
+    scale = min(128 / orig_w, 128 / orig_h)
     new_w = int(orig_w * scale)
     new_h = int(orig_h * scale)
 
@@ -110,27 +106,44 @@ def image_to_colors(image_path):
     img_resized = img.resize((new_w, new_h), Image.NEAREST)
 
     # 居中粘贴
-    offset_x = (64 - new_w) // 2
-    offset_y = (64 - new_h) // 2
+    offset_x = (128 - new_w) // 2
+    offset_y = (128 - new_h) // 2
     background.paste(img_resized, (offset_x, offset_y))
 
-    # 读取像素颜色
     pixels = background.load()
-    colors = [[''] * 64 for _ in range(64)]
-    for y in range(64):
-        for x in range(64):
+    colors = [[''] * 128 for _ in range(128)]
+    for y in range(128):
+        for x in range(128):
             r, g, b = pixels[x, y]
             colors[y][x] = f'#{r:02x}{g:02x}{b:02x}'
     return colors
+
+
+# ---------- 将 64x64 颜色数组放大到 128x128（每个像素变成 2x2） ----------
+def upscale_to_128(colors_64):
+    """输入 64x64 的十六进制颜色列表，返回 128x128"""
+    big = [[''] * 128 for _ in range(128)]
+    for y in range(64):
+        for x in range(64):
+            col = colors_64[y][x]
+            # 填充到 2x2 块
+            big[y*2][x*2] = col
+            big[y*2][x*2+1] = col
+            big[y*2+1][x*2] = col
+            big[y*2+1][x*2+1] = col
+    return big
 
 
 # ---------- 主窗口 ----------
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title("像素练习生")
-        self.scale = 6
-        self.canvas = tk.Canvas(root, width=64*self.scale, height=64*self.scale, bg='white')
+        self.root.title("像素练习生 - 128x128")
+        self.pixel_size = 128          # 网格尺寸
+        self.scale = 3                 # 每个格子的显示像素（3 倍，窗口为 384x384）
+        canvas_size = self.pixel_size * self.scale
+
+        self.canvas = tk.Canvas(root, width=canvas_size, height=canvas_size, bg='white')
         self.canvas.pack(pady=10)
 
         btn_frame = tk.Frame(root)
@@ -142,20 +155,26 @@ class App:
         self.btn_load = tk.Button(btn_frame, text="选择图片生成像素", command=self.load_image)
         self.btn_load.pack(side=tk.LEFT, padx=5)
 
-        self.rect_ids = [[None]*64 for _ in range(64)]
-        for y in range(64):
-            for x in range(64):
-                x1,y1 = x*self.scale, y*self.scale
-                rid = self.canvas.create_rectangle(
-                    x1, y1, x1+self.scale, y1+self.scale, fill='white', outline='')
+        # 创建 128x128 个矩形
+        self.rect_ids = [[None]*self.pixel_size for _ in range(self.pixel_size)]
+        for y in range(self.pixel_size):
+            for x in range(self.pixel_size):
+                x1 = x * self.scale
+                y1 = y * self.scale
+                x2 = x1 + self.scale
+                y2 = y1 + self.scale
+                rid = self.canvas.create_rectangle(x1, y1, x2, y2,
+                                                   fill='white', outline='')
                 self.rect_ids[y][x] = rid
 
-        self.template = create_template()
-        self.randomize()          # 启动时显示随机练习生
+        self.template = create_template()    # 64x64 模板
+        self.randomize()
 
     def randomize(self):
-        colors = render_image(self.template)
-        self.apply_colors(colors)
+        # 生成 64x64 随机练习生，然后放大到 128x128 显示
+        colors_64 = render_image_64(self.template)
+        colors_128 = upscale_to_128(colors_64)
+        self.apply_colors(colors_128)
 
     def load_image(self):
         file_path = filedialog.askopenfilename(
@@ -165,15 +184,15 @@ class App:
         if not file_path:
             return
         try:
-            colors = image_to_colors(file_path)
-            self.apply_colors(colors)
+            colors_128 = image_to_colors(file_path)   # 直接生成 128x128
+            self.apply_colors(colors_128)
         except Exception as e:
             messagebox.showerror("错误", f"无法处理图片：{e}")
 
     def apply_colors(self, colors):
-        """将二维颜色数组绘制到画布上"""
-        for y in range(64):
-            for x in range(64):
+        """将 128x128 颜色数组绘制到画布上"""
+        for y in range(self.pixel_size):
+            for x in range(self.pixel_size):
                 self.canvas.itemconfig(self.rect_ids[y][x], fill=colors[y][x])
 
 
