@@ -1,9 +1,9 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import random
-from PIL import Image, ImageTk
+from PIL import Image
 
-# ---------- 64x64 模板（保留，作为后备） ----------
+# ---------- 64x64 模板（随机模式用） ----------
 def create_template():
     grid = [[0] * 64 for _ in range(64)]
 
@@ -89,15 +89,34 @@ def render_image(template):
     return colors
 
 
-# ---------- 图片转 64x64 像素数组 ----------
+# ---------- 图片转 64x64 像素数组（自动适应尺寸，不变形） ----------
 def image_to_colors(image_path):
     """
-    读取图片，缩放到 64x64，返回颜色字符串列表 colors[y][x]
+    读取图片，等比缩放后居中放置到 64x64 白色背景上，
+    返回颜色字符串列表 colors[y][x]
     """
-    img = Image.open(image_path).convert('RGB')    # 去掉透明通道，转RGB
-    img = img.resize((64, 64), Image.NEAREST)      # 邻近插值，保持像素感
-    pixels = img.load()
-    colors = [['#ffffff'] * 64 for _ in range(64)]
+    img = Image.open(image_path).convert('RGB')   # 去掉透明通道
+    orig_w, orig_h = img.size
+
+    # 创建 64x64 白色背景
+    background = Image.new('RGB', (64, 64), (255, 255, 255))
+
+    # 计算缩放比例，使图片完全在 64x64 内
+    scale = min(64 / orig_w, 64 / orig_h)
+    new_w = int(orig_w * scale)
+    new_h = int(orig_h * scale)
+
+    # 用邻近插值保持像素感
+    img_resized = img.resize((new_w, new_h), Image.NEAREST)
+
+    # 居中粘贴
+    offset_x = (64 - new_w) // 2
+    offset_y = (64 - new_h) // 2
+    background.paste(img_resized, (offset_x, offset_y))
+
+    # 读取像素颜色
+    pixels = background.load()
+    colors = [[''] * 64 for _ in range(64)]
     for y in range(64):
         for x in range(64):
             r, g, b = pixels[x, y]
@@ -131,8 +150,8 @@ class App:
                     x1, y1, x1+self.scale, y1+self.scale, fill='white', outline='')
                 self.rect_ids[y][x] = rid
 
-        self.template = create_template()   # 保留，用于随机模式
-        self.randomize()                     # 启动时先随机一个
+        self.template = create_template()
+        self.randomize()          # 启动时显示随机练习生
 
     def randomize(self):
         colors = render_image(self.template)
@@ -152,7 +171,7 @@ class App:
             messagebox.showerror("错误", f"无法处理图片：{e}")
 
     def apply_colors(self, colors):
-        """将 colors[y][x] 列表绘制到画布上"""
+        """将二维颜色数组绘制到画布上"""
         for y in range(64):
             for x in range(64):
                 self.canvas.itemconfig(self.rect_ids[y][x], fill=colors[y][x])
